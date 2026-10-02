@@ -1,0 +1,62 @@
+name: Check and deploy to Surge
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: surge-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check page and prepare publish directory
+        run: node scripts/check.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: website
+          path: dist/index.html
+          retention-days: 7
+
+  deploy:
+    needs: check
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: production
+      url: https://chenpu-little-world-98e6.surge.sh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: actions/download-artifact@v4
+        with:
+          name: website
+          path: dist
+      - name: Install Surge CLI
+        run: npm install --global surge@0.44.4
+      - name: Deploy
+        env:
+          SURGE_TOKEN: ${{ secrets.SURGE_TOKEN }}
+        run: |
+          if [ -z "$SURGE_TOKEN" ]; then
+            echo 'Configure repository Actions secret SURGE_TOKEN first.'
+            exit 1
+          fi
+          surge ./dist chenpu-little-world-98e6.surge.sh
+      - name: Verify published page
+        run: node scripts/verify.mjs
